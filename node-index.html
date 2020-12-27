@@ -1,0 +1,320 @@
+<html>
+<head>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.24.1/dist/phaser.min.js"></script>
+    <!--script src="app.js"></script-->
+
+    <script>
+
+const config = {
+    type: Phaser.AUTO,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 200 }
+        }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    },
+};
+
+
+const game = new Phaser.Game(config);
+
+let cellGraphics;
+
+let gripGraphics;
+
+const CELLSIZE = 5;
+const WIDTH = window.innerWidth;
+const HEIGHT = window.innerHeight;
+
+let zoom = 1;
+let stopped = false;
+
+let moveCameraUp = false;
+let moveCameraDown = false;
+let moveCameraLeft = false;
+let moveCameraRight = false;
+
+let board = new Map();
+
+/* Cell struture
+    key: "x:y"
+    value: {
+        x:
+        y:
+        value: 1 or 0
+        neighbors: [
+            "x:y",
+            "x:y",
+            "x:y"
+            "x:y"
+        ]
+    }
+*/
+
+let controls;
+
+function preload() {
+
+}
+
+function create() {
+
+    this.cameras.main.backgroundColor.setTo(255,255,255);
+
+    this.cameras.main.setZoom(zoom);
+    this.cameras.main.centerOn(WIDTH / 2, HEIGHT / 2);
+
+    /*
+    this.input.on('wheel', function (pointer, gameObjects, deltaX, deltaY, deltaZ) {
+        let tempZoom = zoom + deltaY * 0.001;
+        zoom = (tempZoom >= 0) ? tempZoom : zoom;
+        this.cameras.main.setZoom(zoom);
+    });*/
+
+    this.input.keyboard.on('keydown', function (event) {
+
+        if (event.keyCode === Phaser.Input.Keyboard.KeyCodes.SPACE) {
+            stopped = !stopped;
+        }
+
+        if(event.keyCode === Phaser.Input.Keyboard.KeyCodes.RIGHT && stopped) {
+            playGame();
+        }
+
+    });
+
+    /*
+    this.input.on('pointermove', function (pointer) {
+
+        //Move camera up
+        moveCameraUp = pointer.y < 20;
+
+           
+        //Move camera down
+
+        //Move camera left
+
+        //Move Camera right
+       
+       
+        console.log(pointer.x,pointer.y);
+
+
+    });
+    */
+    
+    var cursors = this.input.keyboard.createCursorKeys();
+
+var controlConfig = {
+    camera: this.cameras.main,
+    left: cursors.left,
+    right: cursors.right,
+    up: cursors.up,
+    down: cursors.down,
+    zoomIn:this.input.on('wheel', function (pointer, gameObjects, deltaX, deltaY, deltaZ) {
+        let tempZoom = zoom + deltaY * 0.001;
+        zoom = (tempZoom >= 0) ? tempZoom : zoom;
+        this.cameras.main.setZoom(zoom);
+    }),
+    zoomOut: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E),
+    acceleration: 0.06,
+    drag: 0.0005,
+    maxSpeed: 1.0
+};
+
+controls = new Phaser.Cameras.Controls.SmoothedKeyControl(controlConfig);
+
+    cellGraphics = this.add.graphics();
+    gridGraphics = this.add.graphics();
+   
+    generateRandomBoard()
+
+    renderBoard();
+
+    
+    this.input.on('pointerdown', function (pointer) {
+        if (pointer.leftButtonDown()) {
+            const i = Math.trunc(this.input.activePointer.worldY/(1 + CELLSIZE));
+            const j = Math.trunc(this.input.activePointer.worldX/(1 +CELLSIZE));
+
+            const key = `${i}:${j}`;
+            if(board.has(key)) {
+                deleteCell(i,j);
+            } else {
+                createCell(i, j, board, 1);
+                renderCell(i,j, 0x000000);
+            }
+        }
+    }, this);
+    
+}
+
+function update(delta) {
+    
+    controls.update(delta)
+
+    /*
+    if(moveCameraUp) {
+        this.cameras.main.y += 0.5;
+    }*/
+
+    //console.time("update");
+    if(!stopped)
+        playGame();
+    //console.timeEnd("update");
+}
+
+function createCell(i,j, board, value=1) {
+
+    let neighbors = [];
+
+    /*
+    const up = (i - 1 < 0 ? Math.floor(window.innerHeight/CELLSIZE)-1 : i - 1);
+    const down = (i + 1 >= Math.floor(window.innerHeight/CELLSIZE) ? 0 : i + 1);
+    const left = (j - 1 < 0 ? Math.floor(window.innerWidth/CELLSIZE) -1 : j - 1);
+    const right = (j + 1 >= Math.floor(window.innerWidth/CELLSIZE) ? 0 : j + 1);
+    */
+
+    const up = i - 1;
+    const down = i + 1;
+    const left = j - 1;
+    const right = j + 1;
+
+
+    neighbors.push(`${up}:${left}`);
+    neighbors.push(`${up}:${j}`);
+    neighbors.push(`${up}:${right}`);
+    neighbors.push(`${i}:${left}`);
+    neighbors.push(`${i}:${right}`);
+    neighbors.push(`${down}:${left}`);
+    neighbors.push(`${down}:${j}`);
+    neighbors.push(`${down}:${right}`);
+
+    board.set(`${i}:${j}`,
+    {
+        i,
+        j,
+        value,
+        neighbors
+    }
+    );
+}
+
+function renderBoard() {
+    cellGraphics.clear();
+    board.forEach((value, key, map) => {
+        cellGraphics.fillStyle(0x000000);
+        cellGraphics.fillRect(value.j + value.j * CELLSIZE, value.i + value.i * CELLSIZE, CELLSIZE, CELLSIZE);
+    });
+}
+
+function generateRandomBoard() {
+
+    const cellMax = /*window.innerWidth*/ WIDTH / CELLSIZE * /*window.innerHeight*/ HEIGHT / CELLSIZE;
+
+    const numberOfCells = Math.ceil(cellMax * 0.6);
+
+    let cellList = [];
+
+    for(let i = 0; i < Math.floor( /*window.innerHeight*/ HEIGHT/CELLSIZE); i++) {
+        for(let j = 0; j < Math.floor(/*window.innerWidth*/WIDTH/CELLSIZE); j++) {
+            cellList.push([i,j]);
+        }
+    }
+
+    cellList = Phaser.Math.RND.shuffle(cellList);
+    cellList = cellList.slice(0,numberOfCells);
+
+    for(let i = 0; i < cellList.length; i++) {
+        createCell(cellList[i][0], cellList[i][1], board);
+    }
+
+}
+
+function getNeighbors(neighbors) {
+
+    let total = 0;
+
+    for(let n of neighbors) {
+        total += board.get(n) != undefined ? 1 : 0;
+    }
+    
+    return total;
+
+}
+
+function playGame() {
+    cellGraphics.clear();
+
+    const newBoard = new Map();
+
+    const emptyCount = new Map();
+
+    board.forEach((value, key, map) => {
+        
+        let totalN = 0;
+
+        for(let n of value.neighbors) {
+            if(board.get(n) === undefined) {
+                if(emptyCount.has(n)) {
+                    emptyCount.set(n, emptyCount.get(n)+1);
+                } else {
+                    emptyCount.set(n, 1);
+                }
+            } else {
+                totalN += 1;
+            }
+        }
+
+        if(totalN === 2 || totalN === 3) {
+            createCell(value.i, value.j, newBoard);
+            renderCell(value.i, value.j, 0x000000);
+        }
+        
+        
+       
+    });
+
+    emptyCount.forEach((value, key, map) => {
+        if(value === 3) {
+            const id = key.split(':');
+
+            const i = Number(id[0]);
+            const j = Number(id[1]);
+
+            createCell(i, j, newBoard);
+            renderCell(i, j, 0x000000)
+        }
+    });
+
+    board = newBoard;
+}
+
+    function renderCell(i,j, color) {
+        cellGraphics.fillStyle(color);
+        cellGraphics.fillRect(j + j * CELLSIZE, i + i * CELLSIZE, CELLSIZE, CELLSIZE);
+    }
+
+
+    function deleteCell(i, j) {
+        const key = `${i}:${j}`;
+        if(board.has(key)) {
+            board.delete(key);
+            renderCell(i,j, 0xffffff);
+        }
+
+    }
+
+    </script>
+
+</head>
+<body style="margin: 0;">
+</body>
+</html>

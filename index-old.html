@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.24.1/dist/phaser.min.js"></script>
+    <script defer src="./app.js"></script>
+</head>
+<body>
+
+    <script>
+
+    class Sprite {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this. maxHP = 100;
+            this. hp = 100;
+            this.xTarget = x;
+            this.yTarget = y;
+            this.moving = false;
+            this.rect = new Phaser.Geom.Rectangle(0, 0, 0, 0);
+            this.distance = 0;
+        }
+
+        update(delta) {
+
+        }
+
+        move(xTarget, yTarget) {
+            this.xTarget = xTarget;
+            this.yTarget = yTarget;
+            this.moving = true;
+        }
+
+        draw2D() {
+            this.rect.setTo(this.x, this.y, 10, 10);
+            player.graphics.fillRectShape(this.rect);
+        }
+
+        draw3D() {
+
+            let visible = false;
+            let index;
+
+            for(let i = 0; i < rayNumber && !visible; i++) {
+
+                if(rayDistances[i] < this.distance) {
+                    continue
+                }
+
+                const relativeHitX = rayHitPoints[i].x - player.x;
+                const relativeHitY = rayHitPoints[i].y - player.y;
+
+                const m = relativeHitY / relativeHitX;
+                
+                // b = y - mx
+                const b = relativeHitY - m * relativeHitX;
+
+                //y = mx + b
+                if(!visible) {
+                    const tempY = (m * (this.x - player.x) + b);
+                    visible = Math.abs( Math.trunc(tempY) - Math.trunc(this.y-player.y)) < 15;
+                    if(visible) {
+
+                        let tr = new Phaser.Geom.Rectangle(this.x, tempY + player.y, 10, 10);
+                        player.graphics.fillStyle(0x0000ff);
+                        player.graphics.fillRectShape(tr);
+
+                        let tl = new Phaser.Geom.Line(0 + player.x, (m * 0 + b) + player.y, this.x, tempY + player.y);
+                        player.graphics.lineStyle(5, 0x0000ff);
+                        player.graphics.strokeLineShape(tl);
+
+                        index = i;
+                    }                         
+                }
+            }
+
+            if(visible) {
+            
+                let lineH = (mapS * 320)/this.distance;
+
+                let lineO = 160 - lineH / 2;
+
+                let pixelInfoSprite = pixelInfo.get('zombie_1');
+
+                const projectedHeight = Math.abs(lineH);
+
+                const spriteAspectRatio = pixelInfoSprite.width/pixelInfoSprite.height;
+
+                const projectedWidth = spriteAspectRatio * projectedHeight;
+
+                const line = map3d[index].line;
+
+                const leftIndex = Math.floor(index - projectedWidth/ rendererLineWidth /2);
+                const leftLine = map3d[leftIndex] != undefined ? map3d[leftIndex].line : undefined;
+
+                const rightIndex = Math.ceil(index + projectedWidth/ rendererLineWidth /2);
+                const rightLine = map3d[rightIndex] != undefined ? map3d[rightIndex].line : undefined;
+
+                mapGraphic.fillStyle(0x0000ff);
+                mapGraphic.fillRect(line.x1, lineO, rendererLineWidth, rendererLineWidth);
+                if(leftLine != undefined)
+                    mapGraphic.fillRect(leftLine.x1, lineH + lineO, rendererLineWidth, rendererLineWidth);
+                if(rightLine != undefined)
+                    mapGraphic.fillRect(rightLine.x1, lineH + lineO, rendererLineWidth, rendererLineWidth);
+
+                mapGraphic.fillRect(line.x1, lineH + lineO, rendererLineWidth, rendererLineWidth);
+
+                let pixels = pixelInfoSprite.pixels;
+
+                let indexes = [];
+                if(rightLine != undefined && leftLine != undefined)
+                    indexes = takeSpreadIndexes( pixels.length-1, projectedWidth / rendererLineWidth);
+             
+                let ii = 0;
+                for(let i = 0; i < pixels.length; i++) {            
+                    if(indexes.includes(i)) {
+                        const verticalStripeDistance = rayDistances[leftIndex + ii];
+                        if(verticalStripeDistance > this.distance) { 
+                            const ready = takeSpread(pixels[i], lineH / rendererLineWidth ); 
+                            for(let j = 0; j < pixels[i].length; j++) {
+                                if(leftLine != undefined && ready[j] != undefined) {
+                                    mapGraphic.fillStyle(ready[j].color, ready[j].alpha);
+                                    mapGraphic.fillRect(leftLine.x1 + (ii * rendererLineWidth), lineO + (j * rendererLineWidth), rendererLineWidth, rendererLineWidth);
+                                }
+                            }
+                        }
+                        ii++;
+                    }
+                }
+            }
+        }
+    }
+
+    const config = {
+        type: Phaser.AUTO,
+        width: 1024, //window.innerWidth - 20,
+        height: 510, //window.innerHeight - 20,
+        physics: {
+            default: 'arcade',
+            arcade: {
+                gravity: { y: 200 }
+            }
+        },
+        scene: {
+            preload: preload,
+            create: create,
+            update: update
+        },
+    };
+
+    const game = new Phaser.Game(config);
+
+    let player = {
+        x: 100,
+        y: 100,
+        rect: new Phaser.Geom.Rectangle(0, 0, 0, 0),
+        graphics: undefined,
+        pdx: 0.0,
+        pdy: 0.0,
+        pa: 0,//3 * Math.PI / 2,
+        directionLine: new Phaser.Geom.Line(0, 0, 0, 0),
+        directionGraphics: undefined,
+    };
+
+    let keyW;
+    let keyA;
+    let keyS;
+    let keyD;
+    let keySpacebar;
+
+    let mapX = 8;
+    let mapY = 8;
+    let mapS = 64;
+
+    let map = [
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 0, 1, 0, 0, 0, 0, 1,
+        1, 0, 1, 0, 0, 0, 0, 1,
+        1, 0, 1, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 2, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+    ];
+
+    const rayNumber = 60;
+    const rayLines = [];
+    let lineGraphic;
+
+    const map3d = [];
+    let mapGraphic;
+
+    const DR = 0.0174533;
+
+    const sprites = [];
+    const rayDistances = new Array(rayNumber);
+    const rayHitPoints = new Array(rayNumber);
+
+    let bullets = [];
+
+
+    let gunAnimationCurrent = 1;
+    let gunAnimation;
+
+    const rendererLineWidth = 8//(window.innerHeight) / rayNumber;
+
+
+    let floorMap = [
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+    ];
+
+    const floor3d = new Array(rayNumber);
+    let floorInfo = new Array(rayNumber);
+
+    let rayLinearFunctions = new Array(rayNumber); 
+
+    let rayAngles = new Array(rayNumber);
+
+    function drawPlayer(game) {
+
+        player.rect.setTo(player.x, player.y, 10, 10);
+        player.graphics.fillRectShape(player.rect);
+
+        player.directionLine.setTo(player.x + 5, player.y + 5, player.x + player.pdx * 5, player.y + player.pdy * 5);
+        player.directionGraphics.strokeLineShape(player.directionLine);
+    }
+
+    function clearPlayer() {
+        player.graphics.clear();
+        player.directionGraphics.clear();
+    }
+
+    function draw2DMap(game) {
+        for(let i = 0; i < mapY; i++) {
+            for(let j = 0; j < mapX; j++) {
+                let rect = new Phaser.Geom.Rectangle(j * mapS, i * mapS, mapS-1, mapS-1);
+                let graphics = game.add.graphics({ fillStyle: { color: map[i * mapX + j] === 1 ? 0xffffff : 0x000000 } });
+                graphics.fillRectShape(rect);
+            }
+        }
+    }
+
+    function movePlayer(game) {
+
+        if (Phaser.Input.Keyboard.JustDown(keySpacebar)) {
+            bullets.push({
+                x: player.x,
+                y: player.y,
+                pdx: player.pdx,
+                pdy: player.pdy,
+                speed: Phaser.Math.GetSpeed(600, 1),
+                rect: new Phaser.Geom.Rectangle(0 ,0, 0, 0),
+            });
+            gunAnimationCurrent = 2;
+        }
+
+
+        if (keyW.isDown) {
+          
+            let tempX = player.x + player.pdx;
+            let tempY = player.y + player.pdy;
+
+            if(!isColliding(tempX, tempY)) { 
+                player.x = tempX;
+                player.y = tempY;
+            }
+
+        } else if (keyA.isDown) {
+            player.pa -= 0.1;
+            if(player.pa < 0)
+                player.pa += 2 * Math.PI;
+            player.pdx = Math.cos(player.pa) * 5;
+            player.pdy = Math.sin(player.pa) * 5;
+        } else if (keyS.isDown) {
+
+            let tempX = player.x - player.pdx;
+            let tempY = player.y - player.pdy;
+
+            if(!isColliding(tempX, tempY)) { 
+                player.x = tempX;
+                player.y = tempY;
+            }
+
+        } else if (keyD.isDown) {
+            player.pa += 0.1;
+            if(player.pa > 2 * Math.PI)
+               player.pa -= 2 * Math.PI;
+            player.pdx = Math.cos(player.pa) * 5;
+            player.pdy = Math.sin(player.pa) * 5;
+        }
+
+        
+        drawPlayer(game);
+    }
+
+    function drawRays3D(game) {
+
+
+        let tempFloorInfo = new Array(rayNumber);
+        for(let i = 0; i < tempFloorInfo.length; i++) {
+            tempFloorInfo[i] = [];
+        }
+
+        let r = 0;
+        let mx = 0;
+        let my = 0;
+        let mp = 0;
+        let dof = 0;
+        let rx = 0.0;
+        let ry = 0.0;
+        let xo = 0;
+        let yo = 0;
+
+        let disT;
+
+        let hmp, vmp, vtype, htype, type;
+
+        let ra = player.pa - DR * 30;
+        if(ra < 0)
+            ra += 2 * Math.PI; 
+        else if (ra > 2 * Math.PI) {
+            ra -= 2 * Math.PI;
+        }
+ 
+        for(let i = 0; i < 60; i++) {
+
+            rayAngles[i] = ra;
+
+            // Check Horizontal Lines
+            dof = 0;
+
+            let disH = Infinity;
+            let hx = player.x;
+            let hy = player.y;
+
+            let aTan = -1/Math.tan(ra);
+   
+            if(ra > Math.PI) { //looking up    
+                ry = ((Math.trunc(player.y) >> 6) << 6) - 0.0001;
+                rx = (player.y - ry) * aTan + player.x;
+                yo = -64;
+                xo = -yo * aTan;
+            }
+            else if(ra < Math.PI) { //looking down
+                ry = ((Math.trunc(player.y) >> 6) << 6) + 64;
+                rx = (player.y - ry) * aTan + player.x;
+                yo = 64;
+                xo = -yo * aTan;
+            }
+            else { // looking straight left or right 
+          
+                rx = player.x;
+                ry = player.y;
+                dof = 8;
+            }
+            while(dof < 8) {
+                mx = Math.trunc(rx) >> 6; 
+                my = Math.trunc(ry) >> 6;
+                mp = my * mapX + mx;
+
+                if(mp > 0 && mp < mapX*mapY && floor3d[mp] != undefined) {
+                    let dis = dist(player.x, player.y, rx, ry, ra);
+
+                    let ca = player.pa - ra;
+                    if(ca < 0)
+                        ca += 2 * Math.PI;
+                    if(ca > 2 * Math.PI)
+                        ca -= 2 * Math.PI;
+                    dis = Math.floor(dis * Math.cos(ca)); // fix fisheye
+
+
+                    tempFloorInfo[i].push({type: floorMap[mp], distance: dis, rx, ry, h: true, mp});
+                }
+
+
+
+                if(mp > 0 && mp < mapX*mapY && map[mp] != 0) { // hit wall
+                    dof = 8;
+                    hx = rx;
+                    hy = ry;
+                    disH = dist(player.x, player.y, hx, hy, ra);
+                    hmp = mp; 
+                    htype = map[mp];
+                } else { // next line
+                    rx += xo;
+                    ry += yo;
+                    dof += 1;
+                }
+            }
+
+           //Check vertical lines
+
+            let disV = Infinity;
+            let vx = player.x;
+            let vy = player.y;
+            
+            const P2 = Math.PI / 2;
+            const P3 = 3 * Math.PI / 2; 
+
+            dof = 0;
+            let nTan = -Math.tan(ra);
+   
+            if(ra > P2 && ra < P3) { //looking left
+            
+                rx = ((Math.trunc(player.x) >> 6) << 6) - 0.0001;
+                ry = (player.x - rx) * nTan + player.y;
+                xo = -64;
+                yo = -xo * nTan;
+            }
+            else if(ra < P2 || ra > P3) { //looking right
+          
+                rx = ((Math.trunc(player.x) >> 6) << 6) + 64;
+                ry = (player.x - rx) * nTan + player.y;
+                xo = 64;
+                yo = -xo * nTan;
+            }
+            else { // looking straight up or down 
+          
+                rx = player.x;
+                ry = player.y;
+                dof = 8;
+            }
+            while(dof < 8) {
+                mx = Math.trunc(rx) >> 6; 
+                my = Math.trunc(ry) >> 6;
+                mp = my * mapX + mx;
+
+                if(mp > 0 && mp < mapX*mapY && floor3d[mp] != undefined) {
+                    let dis = dist(player.x, player.y, rx, ry, ra);
+                    let ca = player.pa - ra;
+                    if(ca < 0)
+                        ca += 2 * Math.PI;
+                    if(ca > 2 * Math.PI)
+                        ca -= 2 * Math.PI;
+                    dis = Math.floor(dis * Math.cos(ca)); // fix fisheye
+
+                    tempFloorInfo[i].push({type: floorMap[mp], distance: dis, rx, ry, h: false, mp});
+                }
+
+
+
+                if(mp > 0 && mp < mapX*mapY && map[mp] != 0) { // hit wall
+                    dof = 8;
+                    vx = rx;
+                    vy = ry;
+                    disV = dist(player.x, player.y, vx, vy, ra);
+                    vmp = mp; 
+                    vtype = map[mp];
+                } else { // next line
+                    rx += xo;
+                    ry += yo;
+                    dof += 1;
+                }
+            }
+
+            let wallColor = undefined; 
+
+            let vertical = false;
+            if(disV < disH) {
+                rx = vx;
+                ry = vy;
+                disT = disV;
+                wallColor = 0xebc634;
+                mp = vmp;
+                vertical = true;
+                type = vtype;
+            } else {
+                rx = hx;
+                ry = hy;
+                disT = disH;
+                wallColor = 0xffff00;
+                mp = hmp;
+                vertical = false;
+                type = htype;
+            }
+            
+            rayDistances[i] = disT;
+            rayHitPoints[i] = {'x': rx, 'y': ry};
+
+            //y = m * x + b;
+
+            // (y - b) / m = x
+
+            const relativeHitX = rx - player.x;
+            const relativeHitY = ry - player.y;
+            const m = relativeHitY / relativeHitX;
+                
+            const b = relativeHitY - m * relativeHitX;
+
+            //rayLinearFunctions[i] = (x) => (m * (x - player.x) + b);
+
+            // x = (y - b) / m
+            rayLinearFunctions[i] = (y) => (((y - player.y) - b) / m);
+
+            updateRayLine(i, player.x + 5, player.y + 5, rx, ry);
+
+
+            // 3d walls
+            let ca = player.pa - ra;
+            if(ca < 0)
+                ca += 2 * Math.PI;
+            if(ca > 2 * Math.PI)
+                ca -= 2 * Math.PI;
+            disT = disT * Math.cos(ca); // fix fisheye
+
+            let lineH = (mapS * 320)/disT;
+            if(lineH > 320)
+                line = 320;
+
+            let lineO = 160 - lineH / 2;
+
+            updateMap3d(i, i * rendererLineWidth + 530, lineO, i * rendererLineWidth + 530, lineH + lineO, rx, ry, vertical, type);
+
+            ra += DR;
+            if(ra < 0)
+                ra += 2 * Math.PI; 
+            else if (ra > 2 * Math.PI) {
+                ra -= 2 * Math.PI;
+            }
+            
+        }
+        floorInfo = tempFloorInfo;
+        updateRayLineGraphics();
+        updateMap3dGraphics();
+    }
+
+    function clearRays() {
+        for( {graphics, line} of rayLines) {
+            graphics.clear();
+        }
+        rayLines.length = 0;
+    }
+
+    function clearMap3d() {
+        for( {graphics, line} of map3d) {
+            graphics.clear();
+        }
+        map3d.length = 0;
+    }
+
+    function dist(ax, ay, bx, by, ang) {
+        return Math.sqrt((bx-ax) * (bx-ax) + (by-ay) * (by-ay));
+    }
+
+    function initRayLines(game) {
+        lineGraphic = game.add.graphics({ lineStyle: { width: 1, color: 0xff00ff} });
+        for(let i = 0; i < rayNumber; i++) {
+            let line = new Phaser.Geom.Line(0 , 0, 0, 0);
+            lineGraphic.strokeLineShape(line);
+            rayLines.push(line);
+        }
+
+    }
+
+    function updateRayLine(index, x1, y1, x2, y2) {
+        rayLines[index].setTo(x1, y1, x2, y2);
+    }
+
+    function updateRayLineGraphics() {
+        lineGraphic.clear();
+        for(let i = 0; i < rayNumber; i++) {
+            lineGraphic.strokeLineShape(rayLines[i]);
+        }
+    }
+
+    function initMap3d(game) {
+        mapGraphic = game.add.graphics({ lineStyle: { width: rendererLineWidth, color: 0xffff00 } });
+        for(let i = 0; i < rayNumber; i++) {
+            let line = new Phaser.Geom.Line(0, 0, 0, 0);
+            mapGraphic.strokeLineShape(line);
+            map3d.push({line, n: 0});
+            floor3d[i] = {line: new Phaser.Geom.Line(0, 0, 0, 0), n: 0};
+        }
+    }
+
+    function updateMap3d(index, x1, y1, x2, y2, rx, ry, vertical, type) {
+        map3d[index].line.setTo(x1, y1, x2, y2);
+        map3d[index].rx = rx;
+        map3d[index].ry = ry;
+        map3d[index].vertical = vertical;
+        map3d[index].type = type;
+    }
+
+    function updateMap3dGraphics() {
+        //mapGraphic.clear();
+
+        const test = []
+
+        for(let i = 0; i < rayNumber; i++) {
+          
+            const line = map3d[i].line;
+
+            const rr =  map3d[i].vertical ? map3d[i].ry : map3d[i].rx;
+
+            const position =  Math.ceil(rr - (rr >> 6) * mapS) - 1;
+                      
+            var x = line.x1;
+            var lineSize = Math.abs(line.y1 - line.y2);
+     
+            let pixels;
+
+            if(map3d[i].type === 1) {
+                pixels = pixelInfo.get('wall').pixels[position];
+            } else {
+                pixels = pixelInfo.get('tile_grass_1').pixels[position];
+            }
+
+            const ready = takeSpread(pixels, lineSize/rendererLineWidth); 
+
+            
+            let g = 0;
+
+            for(let y = line.y1; y < line.y2; y += rendererLineWidth) {
+                if(ready[g] != undefined) {
+                    let color = map3d[i].vertical ? (ready[g].color >> 1) & 8355711 : ready[g].color;
+                
+                    mapGraphic.fillStyle(color);
+                    mapGraphic.fillRect(x, y, rendererLineWidth, rendererLineWidth);
+                }
+                g++;
+
+            }
+
+     
+        }
+       
+    }
+
+    function isColliding(x, y) {
+
+        const mx = ((Math.trunc(x + 5) >> 6) );
+        const my = ((Math.trunc(y + 5) >> 6) );
+        const mp = my * mapX + mx;
+
+        return map[mp] != 0 
+
+    }
+
+    function loadPixelInfo(game, textureNames) {
+
+        const pixelMap = new Map();
+
+        for(name of textureNames) {
+
+            var src = game.textures.get(name).getSourceImage();
+
+            var canvas = game.textures.createCanvas(`${name}-map`, src.width, src.height).draw(0, 0, src);
+
+            //  You can now access the CanvasTexture properties, such as canvas.imageData
+
+            //  Here we'll just create a rectangle for each pixel, with a unique size
+
+            var pixel = new Phaser.Display.Color();
+
+            var pixelList = []
+
+            for (var x = 0; x < src.width; x++) {
+                
+                let column = [];
+
+                for (var y = 0; y < src.height; y++) {
+
+                    canvas.getPixel(x, y, pixel);
+
+                    if(pixel.a === 0)
+                        column.push({color: 0, alpha: 0});
+                    else
+                        column.push({color: pixel.color, alpha: pixel.a / 255.0});
+
+                }
+                pixelList.push(column);
+            }
+
+            pixelMap.set(name, {pixels: pixelList, height: src.height, width: src.width});
+        }
+        return pixelMap;
+        
+    }
+ 
+    function takeSpread(sequence,  num) {
+        const result = []
+
+        const length = sequence.length;
+        for(let i = 0; i < num; i++) {
+            result.push(sequence[Math.ceil(i * length / num)]);
+        }
+        return result;
+    }
+
+    function takeSpreadIndexes(length, num) {
+        const result = [];
+
+        for(let i = 0; i < num; i++) {
+            result.push(Math.ceil(i * length / num));
+        }
+
+        return result;
+    }
+
+
+    function addSprite(game, x, y) {
+        sprites.push({x, y, rect: new Phaser.Geom.Rectangle(0, 0, 0, 0)});
+    }
+
+
+    function bulletCollision() {
+
+
+        const toBeRemoved = [];
+
+        for(let b of bullets) {
+            
+            //check walls
+            const mx = ((Math.trunc(b.x + 5) >> 6) );
+            const my = ((Math.trunc(b.y + 5) >> 6) );
+            const mp = my * mapX + mx;
+
+            if(map[mp] != 0) {
+                toBeRemoved.push(b);  
+            } else {
+                // check sprites
+                for(let s of sprites) {
+                    //console.log(Math.abs(b.x - s.x),Math.abs(b.y - s.y))
+                    if(Math.abs(b.x - s.x) < 30 && Math.abs(b.y - s.y) < 30) {
+                        console.log('hit');
+                        s.hp = 1;
+                        toBeRemoved.push(b);
+                    }
+                }
+            }
+
+        }
+
+        for(let tb of toBeRemoved) {
+            let index = bullets.indexOf(tb);
+            bullets.splice(index, 1);  
+        }
+
+
+    }
+
+    function preload () {
+        this.load.image('tile_grass_1', 'assets/sprites/tileGrass1.png');
+        this.load.image('wall', 'assets/sprites/pattern112.png');
+        this.load.image('zombie_1', 'assets/sprites/zombie_1.png');
+        this.load.image('zombie_1_big', 'assets/sprites/zombie_1_big.png');
+        this.load.image('gun', 'assets/sprites/gun.png');
+        this.load.image('gun2', 'assets/sprites/gun2.png');
+        this.load.image('gun3', 'assets/sprites/gun3.png');
+        this.load.image('gun4', 'assets/sprites/gun4.png');
+        this.load.image('gun5', 'assets/sprites/gun5.png');
+    }
+
+    let pixelInfo;
+
+    function create () {
+        draw2DMap(this);
+
+        this.cameras.main.backgroundColor.setTo(75,75,75);
+
+        initRayLines(this);
+        initMap3d(this);
+
+        keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+        keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+        keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+        keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+        keySpacebar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+        player.pdx = Math.cos(player.pa) * 5;
+        player.pdy = Math.sin(player.pa) * 5;
+
+        player.graphics = this.add.graphics({ fillStyle: { color: 0xff0000 } });
+        player.directionGraphics = this.add.graphics({ lineStyle: { width: 3, color: 0xaa00aa } });
+        drawPlayer(this, 100, 100);
+
+        pixelInfo = loadPixelInfo(game, ['wall', 'tile_grass_1', 'zombie_1', 'zombie_1_big', 'gun', 'gun2', 'gun3', 'gun4', 'gun5']);
+
+        gunAnimation = {
+            1:  pixelInfo.get('gun').pixels,
+            2:  pixelInfo.get('gun2').pixels,
+            3:  pixelInfo.get('gun3').pixels,
+            4:  pixelInfo.get('gun4').pixels,
+            5:  pixelInfo.get('gun5').pixels,
+        }
+
+        sprites.push(new Sprite(300, 200));
+        sprites.push(new Sprite(200, 200));
+        sprites.push(new Sprite(300, 300));
+
+        this.input.on('pointerdown', function (pointer) {
+            this.input.mouse.requestPointerLock();
+        }, this);
+
+        this.input.keyboard.on('keydown-Q', function (event) {
+            if (this.input.mouse.locked)
+            {
+                this.input.mouse.releasePointerLock();
+            }
+        }, this);
+
+        this.input.on('pointermove', function (pointer) {
+
+                if (this.input.mouse.locked)
+                {
+                    if(pointer.movementX > 0) {
+                        player.pa += (0.01 * pointer.movementX);
+                        if(player.pa > 2 * Math.PI)
+                            player.pa -= 2 * Math.PI;
+                        player.pdx = Math.cos(player.pa) * 5;
+                        player.pdy = Math.sin(player.pa) * 5;
+
+                    } else {
+                        player.pa += (0.01 * pointer.movementX);
+                        if(player.pa < 0)
+                            player.pa += 2 * Math.PI;
+                        player.pdx = Math.cos(player.pa) * 5;
+                        player.pdy = Math.sin(player.pa) * 5;
+                    }
+            
+                }
+        }, this);
+    
+    
+        this.input.on('pointerdown', function (pointer) {
+
+            bullets.push({
+                x: player.x,
+                y: player.y,
+                pdx: player.pdx,
+                pdy: player.pdy,
+                speed: Phaser.Math.GetSpeed(600, 1),
+                rect: new Phaser.Geom.Rectangle(0 ,0, 0, 0),
+            });
+
+            gunAnimationCurrent = 2;
+
+        }, this);
+    
+    }
+
+     
+    function drawGun() {
+        if(gunAnimationCurrent > 1 && gunAnimationCurrent < 5) {
+            gunAnimationCurrent++;
+        } else if (gunAnimationCurrent > 5) {
+            gunAnimationCurrent = 1;
+        }
+
+        const gunPixels = gunAnimation[gunAnimationCurrent] //pixelInfo.get('gun').pixels;
+        for(let i = 0; i < gunPixels.length; i++) {            
+            for(let j = 0; j < gunPixels[i].length; j++) {
+                mapGraphic.fillStyle(gunPixels[i][j].color, gunPixels[i][j].alpha);
+                mapGraphic.fillRect(530 - 30 + (i * rendererLineWidth), (j * rendererLineWidth), rendererLineWidth, rendererLineWidth);
+            }
+        }
+    }
+
+    function updateSprites(delta) {
+
+        for(let s of sprites) {
+           s.distance = dist(player.x, player.y, s.x, s.y);
+        }
+
+        sprites.sort((a,b) => b.distance - a.distance);
+
+        for(let s of sprites) {
+            s.update(delta);
+            s.draw2D();
+            s.draw3D();
+        }
+
+    }
+
+
+    let floorLines = [];
+
+    function drawFloor() {
+
+        /*
+        for(let i = 0; i < floor3d.length; i++) {
+            
+            floor3d[i].line.setTo(530, i * 8, 60 * 8 + 530 , i * 8);
+            mapGraphic.lineStyle(8, 0x00ffff);
+            mapGraphic.strokeLineShape(floor3d[i].line);
+        }*/
+
+        /*
+
+        let rayDirX0 = rayLines[0].x2 - rayLines[0].x1;
+        let rayDirY0 = rayLines[0].y2 - rayLines[0].y1;
+        let rayDirX1 = rayLines[rayLines.length-1].x2 - rayLines[rayLines.length-1].x1;
+        let rayDirY1 = rayLines[rayLines.length-1].y2 - rayLines[rayLines.length-1].y1;
+
+        for(let y = 0; y < 8 * 60; y+=8) {
+
+            let p = y * 8 - 512 / 2;
+
+            let posZ = 0.5 * 512;
+
+            let rowDistance = posZ / p;
+
+            let floorStepX = rowDistance * (rayDirX1-rayDirX0) / (1024/2);
+            let floorStepY = rowDistance * (rayDirY1-rayDirY0) / (1024/2);
+            
+            let floorX = 512 + (512/2)+ rowDistance * rayDirX0;
+            let floorY = 510 + rowDistance * rayDirY0;
+
+            for(let x = 512; x < 1024; x+=8) {
+                mapGraphic.fillStyle(0x0000ff + floorY + floorX, 1);
+                mapGraphic.fillRect(x, y, rendererLineWidth, rendererLineWidth);
+
+                floorX += floorStepX;
+                floorY += floorStepY;
+
+            }
+
+        }
+        */
+        const tl = [];
+
+        for(let y = 0; /*y < 8 * 60; y+=8*/ y < 530; y++) {
+            const tx = []
+            for(let i = 0; i < rayLinearFunctions.length; i++) {
+                if(rayLinearFunctions[i] != undefined) {
+                    let xx = player.x - player.pdx;
+                    let yy = player.y - player.pdy;
+
+                    const x = rayLinearFunctions[i](y);
+                    if(x + player.x < 512) {
+                        if((rayAngles[i] < (Math.PI / 2) && rayAngles[i] > 0 && (x + player.x> player.x && y > player.y)) ||
+                            (rayAngles[i] < (Math.PI) && rayAngles[i] > Math.PI / 2 && (x + player.x < player.x && y > player.y)) ||
+                            (rayAngles[i] > Math.PI && rayAngles[i] < 3 * Math.PI / 2 && (x + player.x < player.x && y < player.y)) ||
+                            (rayAngles[i] < 2 * Math.PI && rayAngles[i] > 3 * Math.PI / 2 && (x + player.x > player.x && y < player.y))) {
+                      
+                         
+                                tx.push(x + player.x);
+                                mapGraphic.fillRect(x + player.x, y, rendererLineWidth, rendererLineWidth);
+                            }
+                        }
+                    
+
+
+                  
+                 
+                    
+                }
+            }
+            tl.push(tx);
+
+        }
+        floorLines = tl;
+
+
+    }
+
+    function update(delta) {
+
+        clearPlayer();
+        mapGraphic.clear();
+        
+        drawFloor(this);
+      
+        movePlayer(this);
+       
+        drawRays3D(this);
+
+
+        updateSprites(delta);
+
+        for(b of bullets) {
+
+            b.x += b.pdx * 5;
+            b.y += b.pdy * 5;
+
+            b.rect.setTo(b.x, b.y, 10, 10);
+            player.graphics.fillStyle(0x00ff00);
+            player.graphics.fillRectShape(b.rect);
+
+            const distance = dist(player.x, player.y, b.x, b.y);
+
+
+            let lineH = (mapS * 320)/distance;
+            
+            let lineO = lineH / 2;
+            
+            if(lineO > 200) {
+                const line = map3d[29].line;
+
+                mapGraphic.fillStyle(0x0000ff);
+                mapGraphic.fillRect(line.x1, lineO, rendererLineWidth, rendererLineWidth);
+            }
+
+
+        }
+
+        bulletCollision();
+
+        drawGun();
+
+
+                    
+
+    }
+
+    </script>
+
+</body>
+</html>
